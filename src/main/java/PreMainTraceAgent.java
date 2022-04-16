@@ -13,7 +13,9 @@ import java.lang.instrument.IllegalClassFormatException;
 import java.lang.instrument.Instrumentation;
 import java.security.ProtectionDomain;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 
 /**
@@ -43,10 +45,18 @@ public class PreMainTraceAgent {
                     CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
                     for (CtMethod declaredMethod : declaredMethods) {
                         List<Integer> lines = analysisInsertPosition(declaredMethod);
-                        for (Integer line : lines) {
-                            declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + line + "行代码,代码内容为:\");");
+                        Map<Integer, Integer> linePrintCount = new HashMap<Integer, Integer>();
+                        for (int i = lines.size()-1; i >=0 ; i--) {
+                            Integer line = lines.get(i);
+                            Integer PrintCount = linePrintCount.getOrDefault(line, 0);
+                            if (PrintCount == 0) {
+                                declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + line + "行代码,代码内容为:\");");
+                            }else if (PrintCount>0){
+                               // String biaohao = line+"["+PrintCount+"]";
+                               // declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + biaohao+ "行代码,代码内容为:\");");
+                            }
+                            linePrintCount.put(line, PrintCount+1);
                         }
-
                     }
                     return ctClass.toBytecode();
                 } catch (Exception e) {
@@ -73,11 +83,10 @@ public class PreMainTraceAgent {
                     int zijiemaIndex = lineNumberTable.startPc(i);
                     //获取栈深度
                     int topIndex = codeFrame[zijiemaIndex].getTopIndex();
-                    line.add(lineNumberTable.toLineNumber(zijiemaIndex));
-          /*          if (topIndex == -1) { //topIndex==-1时，栈中没有元素，应该上一行代码是;结尾的，可以在这行代码前插入内容
+                    if (topIndex == -1) { //topIndex==-1时，栈中没有元素，应该上一行代码是;结尾的，可以在这行代码前插入内容
                         //System.out.println("代码行号:" + lineNumberTable.toLineNumber(zijiemaIndex));
                         if (i < lineNumberTable.tableLength() - 1) {
-                           // line.add(lineNumberTable.toLineNumber(zijiemaIndex));
+                            line.add(lineNumberTable.toLineNumber(zijiemaIndex));
                             //System.out.println("字节码行号范围" + zijiemaIndex + "--" + (lineNumberTable.startPc(i + 1) - 1));
                         } else {
                             //System.out.println("字节码行号范围" + zijiemaIndex + "--" + zijiemaIndex);
@@ -85,13 +94,13 @@ public class PreMainTraceAgent {
                         }
 
                     } else {
-                        *//**
-                         * 类似下边的结构，按照一行处理，
+                        /**
+                         * 类似下边的结构，直接忽略，
                          * Strin abc = "abc"
                          *             +"def";
-                         * *//*
+                         * */
                         //System.out.println("代码行号:" + lineNumberTable.toLineNumber(zijiemaIndex) + ",该行是上一个语句的继续，不是新行，直接跳过");
-                    }*/
+                    }
                 }
             }
             return line;

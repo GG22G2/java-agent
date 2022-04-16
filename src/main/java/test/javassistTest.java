@@ -8,6 +8,8 @@ import javassist.bytecode.*;
 import javassist.bytecode.analysis.Analyzer;
 import javassist.bytecode.analysis.Frame;
 
+import java.util.Arrays;
+
 /**
  * @author 胡帅博
  * @date 2022/4/15 21:37
@@ -23,10 +25,11 @@ public class javassistTest {
             Analyzer analyzer = new Analyzer();
             Frame[] codeFrame = analyzer.analyze(declaredMethod);
 
-
             MethodInfo methodInfo = declaredMethod.getMethodInfo();
             CodeAttribute CodeAttr = methodInfo.getCodeAttribute();
             AttributeInfo tempAttr = CodeAttr.getAttribute("LineNumberTable");
+
+
 
             if (tempAttr != null) {
                 LineNumberAttribute lineNumberTable = (LineNumberAttribute) tempAttr;
@@ -44,14 +47,14 @@ public class javassistTest {
                     int topIndex = codeFrame[zijiemaIndex].getTopIndex();
 
                     if (topIndex == -1) { //topIndex==-1时，栈中没有元素，应该上一行代码是;结尾的，可以在这行代码前插入内容
-                        System.out.println("代码行号:"+lineNumberTable.toLineNumber(zijiemaIndex));
+                      //  System.out.println("代码行号:"+lineNumberTable.toLineNumber(zijiemaIndex));
                         if (i<lineNumberTable.tableLength()-1){
-                            System.out.println("字节码行号范围"+zijiemaIndex+"--"+(lineNumberTable.startPc(i+1)-1));
+                        //    System.out.println("字节码行号范围"+zijiemaIndex+"--"+(lineNumberTable.startPc(i+1)-1));
                         }else {
-                            System.out.println("字节码行号范围"+zijiemaIndex+"--"+zijiemaIndex);
+                       //     System.out.println("字节码行号范围"+zijiemaIndex+"--"+zijiemaIndex);
                         }
                     }else {
-                        System.out.println("代码行号:"+lineNumberTable.toLineNumber(zijiemaIndex)+",该行是上一个语句的继续，不是新行，直接跳过");
+                     //   System.out.println("代码行号:"+lineNumberTable.toLineNumber(zijiemaIndex)+",该行是上一个语句的继续，不是新行，直接跳过");
                     }
                 }
             }

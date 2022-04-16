@@ -6,7 +6,7 @@
 public class App {
 
     public static void main(String[] args) {
-        for(int i = 0; i < 100; i++) {
+        for(int i = 0; i < 1; i++) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -30,15 +30,17 @@ public class App {
 
 
     public void test2(){
-        int a1=1;
+        int a1=2;
+        String a4 = a1+
+                "";
 
-        String a3="1\n"
-                +"2131";
+        String a5 = new StringBuilder()
+                .append(a4).toString();
 
         for(int i = 0;
-            i < 2;
+            i < a1;
             i++) {
-            System.out.println(222);
+            System.out.println(".");
         }
     }
 }
