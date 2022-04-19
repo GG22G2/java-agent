@@ -8,8 +8,6 @@ import javassist.bytecode.*;
 import javassist.bytecode.analysis.Analyzer;
 import javassist.bytecode.analysis.Frame;
 
-import java.util.Arrays;
-
 /**
  * @author 胡帅博
  * @date 2022/4/15 21:37
@@ -17,7 +15,7 @@ import java.util.Arrays;
 public class javassistTest {
     public static void main(String[] args) throws NotFoundException, BadBytecode {
         ClassPool classPool = ClassPool.getDefault();
-        CtClass ctClass = classPool.get("App");
+        CtClass ctClass = classPool.get("org.example.App");
 
         CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
 
@@ -72,9 +70,4 @@ public class javassistTest {
 
         }
     }
-
-
-
-
-
 }
