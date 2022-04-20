@@ -105,7 +105,8 @@ public class CFRHelper {
         for (Method method : c.getMethods()) {
             method.dump(byteCoded, true);
         }
-        d.close();
+        //打印反编译结果
+        //d.close();
 
         //获取行号和字节码对照关系
         if (byteCoded instanceof BytecodeTrackingDumper) {

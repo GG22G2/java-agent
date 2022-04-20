@@ -1,7 +1,4 @@
-import javassist.ClassPool;
-import javassist.CtClass;
-import javassist.CtMethod;
-import javassist.LoaderClassPath;
+import javassist.*;
 import javassist.bytecode.*;
 import javassist.bytecode.analysis.Analyzer;
 import javassist.bytecode.analysis.Frame;
@@ -24,7 +21,6 @@ import java.util.Map;
  */
 public class PreMainTraceAgent {
     public static void premain(String agentArgs, Instrumentation ins) {
-        System.out.println("agentArgs:" + agentArgs);
         ins.addTransformer(new DefineTransformer(), true);
 
     }
@@ -41,66 +37,81 @@ public class PreMainTraceAgent {
             if (dcCommonState == null && loader != null) {
                 dcCommonState = CFRHelper.getDCCommonState(loader);
             }
-            if (className == null) {
+            if (className == null || dcCommonState == null) {
                 // 返回null表示不修改类字节码，和返回classfileBuffer是一样的效果。
                 return null;
             }
 
-            if (className.equals("org/example/App")) {
+            //if (className.equals("org/example/App")) {
 
-                ClassPool classPool = ClassPool.getDefault();
-                classPool.appendClassPath(new LoaderClassPath(loader));
-                classPool.appendSystemPath();
-                try {
-                    CtClass ctClass = classPool.makeClass(new ByteArrayInputStream(classfileBuffer));
-                    //List<String> innerClassList = getInnerClassList(ctClass);
+            ClassPool classPool = ClassPool.getDefault();
+            classPool.appendClassPath(new LoaderClassPath(loader));
+            classPool.appendSystemPath();
+            try {
+                CtClass ctClass = classPool.makeClass(new ByteArrayInputStream(classfileBuffer));
+                //List<String> innerClassList = getInnerClassList(ctClass);
 
-                    CFRHelper.MethodInfo methodInfo = CFRHelper.parse(classfileBuffer, className, loader, dcCommonState);
-                    Map<Integer, String> codes = methodInfo.codes;
-                    Map<String, Map<Integer, Integer>> locs = methodInfo.locs;
-                    CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
-                    for (CtMethod declaredMethod : declaredMethods) {
-                        String methodId = declaredMethod.getName() + declaredMethod.getMethodInfo().getDescriptor();
+                CFRHelper.MethodInfo methodInfo = CFRHelper.parse(classfileBuffer, className, loader, dcCommonState);
+                Map<Integer, String> codes = methodInfo.codes;
+                Map<String, Map<Integer, Integer>> locs = methodInfo.locs;
+                CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
+                for (CtMethod declaredMethod : declaredMethods) {
+                    String methodId = declaredMethod.getName() + declaredMethod.getMethodInfo().getDescriptor();
 
-                        Map<Integer, Integer> methodLocData = locs.get(methodId);
+                    Map<Integer, Integer> methodLocData = locs.get(methodId);
 
-                        List<LineTableInfo> lines = analysisInsertPosition(declaredMethod);
-                        Map<Integer, Integer> linePrintCount = new HashMap<Integer, Integer>();
+                    List<LineTableInfo> lines = analysisInsertPosition(declaredMethod);
+                    Map<Integer, Integer> linePrintCount = new HashMap<Integer, Integer>();
 
-                        Map<Integer, String> lineCode = getLineCode(lines, methodLocData, codes);
+                    Map<Integer, String> lineCode = getLineCode(lines, methodLocData, codes);
 
-                        for (int i = lines.size() - 1; i >= 0; i--) {
-                            LineTableInfo lineTableInfo = lines.get(i);
-                            Integer line = lineTableInfo.javaLine;
-                            Integer PrintCount = linePrintCount.getOrDefault(line, 0);
-                            if (PrintCount == 0) {
-                                String code = lineCode.get(line);
-                                if (code!=null){
-                                    code = code.replace("\"", "\\\"");
-                                }
+                    for (int i = lines.size() - 1; i >= 0; i--) {
+                        LineTableInfo lineTableInfo = lines.get(i);
+                        Integer line = lineTableInfo.javaLine;
+                        Integer PrintCount = linePrintCount.getOrDefault(line, 0);
+                        if (PrintCount == 0) {
+                            String code = lineCode.get(line);
+                            if (code != null) {
 
-                                declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"," + className + "," + line + "行,代码:" + code + "\");");
-                                //System.out.println(Thread.currentThread().getName()+"执行了类org/example/App的第43行代码,代码内容为:        System.out.println(".");");
-                            } else if (PrintCount > 0) {
-                                // String biaohao = line+"["+PrintCount+"]";
-                                // declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + biaohao+ "行代码,代码内容为:\");");
+                                code = convertCode(code);
                             }
-                            linePrintCount.put(line, PrintCount + 1);
+                            //System.out.println(code);
+                            try {
+                                declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"," + className + "," + line + "行,代码:" + code + "\");");
+
+                            } catch (CannotCompileException e2) {
+                                System.out.println("编译失败了:" + code);
+                                //   e2.printStackTrace();
+                            }
+                            //System.out.println(Thread.currentThread().getName()+"执行了类org/example/App的第43行代码,代码内容为:        System.out.println(".");");
+                        } else if (PrintCount > 0) {
+                            // String biaohao = line+"["+PrintCount+"]";
+                            // declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + biaohao+ "行代码,代码内容为:\");");
                         }
+                        linePrintCount.put(line, PrintCount + 1);
                     }
-                    return ctClass.toBytecode();
-                } catch (Exception e) {
-                    e.printStackTrace();
                 }
+                return ctClass.toBytecode();
+            } catch (Exception e) {
+                e.printStackTrace();
             }
+            //}
             return classfileBuffer;
         }
 
+        public String convertCode(String code){
+            code = code.replace("\\", "\\\\");
+            code = code.replace("\"", "\\\"");
+            return code;
+        }
+
         public Map<Integer, String> getLineCode(List<LineTableInfo> lines, Map<Integer, Integer> methodLocData, Map<Integer, String> codes) {
-            //System.out.println(lines);
-            //System.out.println(methodLocData);
 
             Map<Integer, String> result = new HashMap<Integer, String>();
+
+            if (methodLocData == null || codes == null || lines.size() == 0) {
+                return result;
+            }
 
             for (Map.Entry<Integer, Integer> integerIntegerEntry : methodLocData.entrySet()) {
                 Integer key = integerIntegerEntry.getKey();
