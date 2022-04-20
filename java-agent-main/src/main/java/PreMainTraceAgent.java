@@ -2,6 +2,8 @@ import javassist.*;
 import javassist.bytecode.*;
 import javassist.bytecode.analysis.Analyzer;
 import javassist.bytecode.analysis.Frame;
+import javassist.compiler.CompileError;
+import javassist.compiler.Javac;
 import org.benf.cfr.reader.state.DCCommonState;
 
 import java.io.ByteArrayInputStream;
@@ -42,64 +44,104 @@ public class PreMainTraceAgent {
                 return null;
             }
 
-            //if (className.equals("org/example/App")) {
+            if (className.equals("org/example/App")||className.equals("org/example/App$1")) {
+                ClassPool classPool = ClassPool.getDefault();
+                classPool.appendClassPath(new LoaderClassPath(loader));
+                classPool.appendSystemPath();
+                try {
+                    CtClass ctClass = classPool.makeClass(new ByteArrayInputStream(classfileBuffer));
+                    //List<String> innerClassList = getInnerClassList(ctClass);
 
-            ClassPool classPool = ClassPool.getDefault();
-            classPool.appendClassPath(new LoaderClassPath(loader));
-            classPool.appendSystemPath();
-            try {
-                CtClass ctClass = classPool.makeClass(new ByteArrayInputStream(classfileBuffer));
-                //List<String> innerClassList = getInnerClassList(ctClass);
+                    CFRHelper.MethodInfo methodInfo = CFRHelper.parse(classfileBuffer, className, loader, dcCommonState);
+                    Map<Integer, String> codes = methodInfo.codes;
+                    Map<String, Map<Integer, Integer>> locs = methodInfo.locs;
+                    CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
+                    for (CtMethod declaredMethod : declaredMethods) {
+                        String methodId = declaredMethod.getName() + declaredMethod.getMethodInfo().getDescriptor();
 
-                CFRHelper.MethodInfo methodInfo = CFRHelper.parse(classfileBuffer, className, loader, dcCommonState);
-                Map<Integer, String> codes = methodInfo.codes;
-                Map<String, Map<Integer, Integer>> locs = methodInfo.locs;
-                CtMethod[] declaredMethods = ctClass.getDeclaredMethods();
-                for (CtMethod declaredMethod : declaredMethods) {
-                    String methodId = declaredMethod.getName() + declaredMethod.getMethodInfo().getDescriptor();
+                        Map<Integer, Integer> methodLocData = locs.get(methodId);
 
-                    Map<Integer, Integer> methodLocData = locs.get(methodId);
+                        List<LineTableInfo> lines = analysisInsertPosition(declaredMethod);
+                        Map<Integer, Integer> linePrintCount = new HashMap<Integer, Integer>();
 
-                    List<LineTableInfo> lines = analysisInsertPosition(declaredMethod);
-                    Map<Integer, Integer> linePrintCount = new HashMap<Integer, Integer>();
+                        Map<Integer, String> lineCode = getLineCode(lines, methodLocData, codes);
 
-                    Map<Integer, String> lineCode = getLineCode(lines, methodLocData, codes);
+                        for (int i = lines.size() - 1; i >= 0; i--) {
+                            LineTableInfo lineTableInfo = lines.get(i);
+                            Integer line = lineTableInfo.javaLine;
+                            Integer PrintCount = linePrintCount.getOrDefault(line, 0);
 
-                    for (int i = lines.size() - 1; i >= 0; i--) {
-                        LineTableInfo lineTableInfo = lines.get(i);
-                        Integer line = lineTableInfo.javaLine;
-                        Integer PrintCount = linePrintCount.getOrDefault(line, 0);
-                        if (PrintCount == 0) {
                             String code = lineCode.get(line);
                             if (code != null) {
-
                                 code = convertCode(code);
                             }
-                            //System.out.println(code);
                             try {
-                                declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"," + className + "," + line + "行,代码:" + code + "\");");
-
+                                insertAt(lineTableInfo.classLineStart, true
+                                        , "System.out.println(Thread.currentThread().getName()+\"," + className + "," + line + "行,代码:" + code + "\");"
+                                        , declaredMethod, ctClass);
                             } catch (CannotCompileException e2) {
                                 System.out.println("编译失败了:" + code);
                                 //   e2.printStackTrace();
                             }
                             //System.out.println(Thread.currentThread().getName()+"执行了类org/example/App的第43行代码,代码内容为:        System.out.println(".");");
-                        } else if (PrintCount > 0) {
-                            // String biaohao = line+"["+PrintCount+"]";
-                            // declaredMethod.insertAt(line, "System.out.println(Thread.currentThread().getName()+\"执行了第" + biaohao+ "行代码,代码内容为:\");");
+
+
                         }
-                        linePrintCount.put(line, PrintCount + 1);
                     }
+                    return ctClass.toBytecode();
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
-                return ctClass.toBytecode();
-            } catch (Exception e) {
-                e.printStackTrace();
             }
-            //}
             return classfileBuffer;
         }
 
-        public String convertCode(String code){
+        public void insertAt(int codeArrayIndex, boolean modify, String src, CtMethod ctMethod, CtClass declaringClass)
+                throws CannotCompileException {
+            MethodInfo methodInfo = ctMethod.getMethodInfo();
+            CodeAttribute ca = methodInfo.getCodeAttribute();
+            if (ca == null)
+                throw new CannotCompileException("no method body");
+
+            LineNumberAttribute ainfo
+                    = (LineNumberAttribute) ca.getAttribute(LineNumberAttribute.tag);
+
+
+            int index = codeArrayIndex;
+            CtClass cc = declaringClass;
+
+            CodeIterator iterator = ca.iterator();
+            Javac jv = new Javac(cc);
+            try {
+                jv.recordLocalVariables(ca, index);
+                jv.recordParams(ctMethod.getParameterTypes(),
+                        Modifier.isStatic(ctMethod.getModifiers()));
+                jv.setMaxLocals(ca.getMaxLocals());
+                jv.compileStmnt(src);
+                Bytecode b = jv.getBytecode();
+                int locals = b.getMaxLocals();
+                int stack = b.getMaxStack();
+                ca.setMaxLocals(locals);
+
+                /* We assume that there is no values in the operand stack
+                 * at the position where the bytecode is inserted.
+                 */
+                if (stack > ca.getMaxStack())
+                    ca.setMaxStack(stack);
+
+                index = iterator.insertAt(index, b.get());
+                iterator.insert(b.getExceptionTable(), index);
+                methodInfo.rebuildStackMapIf6(cc.getClassPool(), cc.getClassFile2());
+            } catch (NotFoundException e) {
+                throw new CannotCompileException(e);
+            } catch (CompileError e) {
+                throw new CannotCompileException(e);
+            } catch (BadBytecode e) {
+                throw new CannotCompileException(e);
+            }
+        }
+
+        public String convertCode(String code) {
             code = code.replace("\\", "\\\\");
             code = code.replace("\"", "\\\"");
             return code;
@@ -181,37 +223,20 @@ public class PreMainTraceAgent {
                     AttributeInfo tempAttr = CodeAttr.getAttribute("LineNumberTable");
                     if (tempAttr != null) {
                         LineNumberAttribute lineNumberTable = (LineNumberAttribute) tempAttr;
-                        for (int i = 0; i < lineNumberTable.tableLength(); i++) {
+                        for (int i = 0; i < lineNumberTable.tableLength() - 1; i++) {
                             int zijiemaIndex = lineNumberTable.startPc(i);
                             //获取栈深度
                             int topIndex = codeFrame[zijiemaIndex].getTopIndex();
                             if (topIndex == -1) { //topIndex==-1时，栈中没有元素，应该上一行代码是;结尾的，可以在这行代码前插入内容
-                                //System.out.println("代码行号:" + lineNumberTable.toLineNumber(zijiemaIndex));
-                                if (i < lineNumberTable.tableLength() - 1) {
-                                    //  line.add(lineNumberTable.toLineNumber(zijiemaIndex));
-                                    //  System.out.println("字节码行号范围" + zijiemaIndex + "--" + (lineNumberTable.startPc(i + 1) - 1));
-
-                                    LineTableInfo lineTableInfo = new LineTableInfo(lineNumberTable.toLineNumber(zijiemaIndex), zijiemaIndex, lineNumberTable.startPc(i + 1) - 1);
-                                    line.add(lineTableInfo);
-                                } else {
-                                    //System.out.println("字节码行号范围" + zijiemaIndex + "--" + zijiemaIndex);
-                                    //line.add(lineNumberTable.toLineNumber(zijiemaIndex)); //return语句
-                                }
-
-                            } else {
-                                /**
-                                 * 类似下边的结构，直接忽略，
-                                 * Strin abc = "abc"
-                                 *             +"def";
-                                 * */
-                                //System.out.println("代码行号:" + lineNumberTable.toLineNumber(zijiemaIndex) + ",该行是上一个语句的继续，不是新行，直接跳过");
+                                LineTableInfo lineTableInfo = new LineTableInfo(lineNumberTable.toLineNumber(zijiemaIndex), zijiemaIndex, lineNumberTable.startPc(i + 1) - 1);
+                                line.add(lineTableInfo);
                             }
                         }
                     }
                 }
 
             } catch (BadBytecode e) {
-                //e.printStackTrace();
+                e.printStackTrace();
             }
             return line;
         }
